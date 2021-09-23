@@ -1,9 +1,10 @@
-// #define devMode true // uncomment untuk mengaktifkan Serial
+#define devMode true // uncomment untuk mengaktifkan Serial
 // #define kusoRGB true // uncomment kalo pake rgbLed
 #define kusoRotary true // uncomment kalo pake rotary encoder
 #define kusoOled true // uncomment kalo pake oled
 
 #include <BleKeyboard.h>
+#include "numpad.h"
 
 #define oledDa         32
 #define oledCk         33
@@ -39,7 +40,7 @@ WS2811 ws2811(ledPin, ledCount); // first argument is the data pin, the second a
 Ticker timer;
 #endif
 
-const byte qtyRoteryLayer = 2;
+const byte qtyRoteryLayer = 5;
 const byte qtyLayer = 4;
 const byte rows = 5;
 const byte cols = 3;
@@ -59,7 +60,7 @@ const byte keyMap[qtyLayer][rows][cols][maxCombi] = {
     {                         {' '},              {KEY_LEFT_SHIFT, KEY_TAB},                       {KEY_TAB}}
   },
   {
-    {                     {KEY_ESC},                                  {'*'},                           {'+'}},
+    {                     {KEY_ESC},                              {KC_PAST},                       {KC_PPLS}},
     {                         {'7'},                                  {'8'},                           {'9'}},
     {                         {'4'},                                  {'5'},                           {'6'}},
     {                         {'1'},                                  {'2'},                           {'3'}},
@@ -77,16 +78,16 @@ const byte keyMap[qtyLayer][rows][cols][maxCombi] = {
     {                      {KEY_F7},                               {KEY_F8},                        {KEY_F9}},
     {                      {KEY_F4},                               {KEY_F5},                        {KEY_F6}},
     {                      {KEY_F1},                               {KEY_F2},                        {KEY_F3}},
-    {               {KEY_LEFT_CTRL},                       {KEY_LEFT_SHIFT},                  {KEY_LEFT_ALT}}
+    {                  {KEY_RETURN},                        {KEY_LEFT_CTRL},                  {KEY_LEFT_ALT}}
   }
 };
 const byte keyAltMap[qtyLayer][rows][cols][maxCombi] = { // jangan isi shiftLayer & shiftRotaryLayer
   {0},
   {
-    {                           {0},                                  {'/'},                           {'-'}},
-    {                           {0},                                    {0},                             {0}},
-    {                           {0},                                    {0},                             {0}},
-    {                           {0},                                    {0},                             {0}},
+    {                           {0},                              {KC_PSLS},                       {KC_PMNS}},
+    {0},
+    {0},
+    {0},
     {                           {0},                                    {0},                 {KEY_BACKSPACE}}
   },
   {0},
@@ -120,11 +121,11 @@ const String buttonDsc[qtyLayer][rows][cols] = {
     {     "F7",       "F8",         "F9"},
     {     "F4",       "F5",         "F6"},
     {     "F1",       "F2",         "F3"},
-    {   "ctrl",    "shift",        "alt"}
+    {  "Enter",     "ctrl",        "alt"}
   }
 };
 const String layerName[qtyLayer] = {"Navigation", "Numpad", "Editing", "Function"};
-const String rotaryLayerName[qtyRoteryLayer] = {"volume", "brush"};
+const String rotaryLayerName[qtyRoteryLayer] = {"volume", "photoShop", "Sublime", "Undo", "Undo (Y)"};
 #endif
 bool buttonStates[rows][cols] = {false};
 long lastPressed[rows][cols]  = {0};
@@ -155,9 +156,24 @@ void myRotary() {
           case 1:
             bleKeyboard.write(']');
             break;
+          case 2:
+            bleKeyboard.press(KEY_LEFT_CTRL);
+            bleKeyboard.write(']');
+            sendRelease();
+            break;
+          case 3:
+            bleKeyboard.press(KEY_LEFT_CTRL);
+            bleKeyboard.press(KEY_LEFT_SHIFT);
+            bleKeyboard.write('z');
+            sendRelease();
+            break;
+          case 4:
+            bleKeyboard.press(KEY_LEFT_CTRL);
+            bleKeyboard.write('y');
+            sendRelease();
+            break;
         }
       }
-      turnOnOled();
     }
     if (res == -1) {
       if (oledOn) {
@@ -168,10 +184,25 @@ void myRotary() {
           case 1:
             bleKeyboard.write('[');
             break;
+          case 2:
+            bleKeyboard.press(KEY_LEFT_CTRL);
+            bleKeyboard.write('[');
+            sendRelease();
+            break;
+          case 3:
+            bleKeyboard.press(KEY_LEFT_CTRL);
+            bleKeyboard.write('z');
+            sendRelease();
+            break;
+          case 4:
+            bleKeyboard.press(KEY_LEFT_CTRL);
+            bleKeyboard.write('z');
+            sendRelease();
+            break;
         }
       }
-      turnOnOled();
     }
+    turnOnOled();
   }
 }
 
@@ -345,13 +376,20 @@ void sendKey(const byte theKey[maxCombi], bool isPressed) {
 }
 
 long lastRelease = 0;
-byte fnRealKey[maxCombi];
-bool fnReleased = false;
-void toBeReleased(long now) {
-  if (fnReleased) {
+bool reqRelease = false; // request release
+void sendRelease() {
+  lastRelease = millis();
+  reqRelease = true;
+}
+
+void releaseKey(long now) {
+  if (reqRelease) {
     if (now - lastRelease > bounce) {
-      fnReleased = false;
-      sendKey(fnRealKey, false);
+      reqRelease = false;
+      bleKeyboard.releaseAll();
+      #ifdef devMode
+      Serial.println("Released All");
+      #endif
     }
   }
 }
@@ -409,11 +447,7 @@ void osu(bool state, byte r, byte c) {
     } else if (r == 4 && c == 0) {
       fn1 = false;
       sendKey(keyMap[layer][r][c], true);
-      for(byte i = 0; i < maxCombi; i++) {
-        fnRealKey[i] = keyMap[layer][r][c][i];
-      }
-      lastRelease = millis();
-      fnReleased = true;
+      sendRelease();
     } else {
       sendKey(keyMap[layer][r][c], false);
     }
@@ -485,7 +519,7 @@ void loop() {
   myRotary();
   rotarySw(now);
   #endif
-  toBeReleased(now);
+  releaseKey(now);
   bool bState = bleKeyboard.isConnected();
   if (bState) {
     for(byte c = 0; c < cols; c++) {
